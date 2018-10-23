@@ -14,7 +14,7 @@ def batch(batch_size=32):
     png = tf.read_file(queue[0])
     image = tf.image.decode_png(png, channels=1)
     image = tf.image.resize_images(image, [32, 32])
-    image = tf.substract(tf.divide(image, 127.5), 1.0)
+    image = tf.subtract(tf.divide(image, 127.5), 1.0)
     return tf.train.shuffle_batch(
         [image],
         batch_size=batch_size,
@@ -87,7 +87,7 @@ def discriminator(inputs, reuse=False):
         inputs: [batch_size, height(=32), width(=32), channels(=1)]のテンソル
         reuse: 変数を再利用するか否か
     Returns:
-        推論結果の [batch_size, 2] のテンソル    
+        推論結果の [batch_size, 2] のテンソル
     '''
     with tf.variable_scope('d'):
         # 畳み込みの繰り返し
@@ -145,7 +145,53 @@ real = batch(batch_size)
 fake = generator(inputs, batch_size)
 real_logits = discriminator(real)
 fake_logits = discriminator(fake, reuse=True)
-g_loss = tf.reduce_mean(tf.nn.sparse)
+g_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=tf.ones([batch_size], dtype=tf.int64),
+            logits=fake_logits))
+d_loss = tf.reduce_sum([
+            tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=tf.zeros([batch_size], dtype=tf.int64),
+                logits=fake_logits)),
+            tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=tf.ones([batch_size], dtype=tf.int64),
+                logits=real_logits))])
 
+g_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='g')
+d_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='d')
+g_train_op = tf.train.AdamOptimizer(learning_rate=0.0001
+                                   ).minimize(g_loss, var_list=g_vars)
+d_train_op = tf.train.AdamOptimizer(learning_rate=0.0001
+                                   ).minimize(d_loss, var_list=d_vars)
+
+generated = tf.concat(tf.split(fake, batch_size)[:8], 2)
+generated = tf.divide(tf.add(tf.squeeze(generated, axis=0), 1.0), 2.0)
+generated = tf.image.convert_image_dtype(generated, tf.uint8)
+output_img = tf.image.encode_png(generated)
+
+with tf.Session() as sess:
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(coord=coord)
+
+    sess.run(tf.global_variables_initializer())
+
+    # 各モデルの学習手続きを実行し、それぞれの誤差値を出力する
+    for i in range(50001):
+        _, _, g_loss_value, d_loss_value = sess.run([g_train_op,
+                                                     d_train_op,
+                                                     g_loss,
+                                                     d_loss])
+        print('step {:5d}: g = {:.4f}, d = {:.4f}'.format(i+1,
+                                                          g_loss_value,
+                                                          d_loss_value))
+
+        if i % 1000 == 0:
+            img = sess.run(output_img)
+            with open(os.path.join(os.path.dirname(__file__),
+                                   '{:05d}.png'.format(i)),
+                                   'wb') as f:
+                f.write(img)
+
+    coord.request_stop()
+    coord.join(threads)
 
 # end of file
