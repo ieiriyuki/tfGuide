@@ -1,7 +1,11 @@
 .*
+aozorabunko-master.zip
+data
 dcgan.py
+DCGANfile
 inputs.py
 images_background_small2.zip
 images_background_small2
+src
 Pipfile
 README.md
